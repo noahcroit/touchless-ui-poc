@@ -30,7 +30,7 @@ def overlay_landmarker(frame, hand_result):
         hand_landmarks = l_hand_landmarks[i]
         handedness = l_handedness[i]
 
-        # Draw the hand landmarks.
+        #Draw the hand landmarks.
         hand_landmarks_proto = landmark_pb2.NormalizedLandmarkList()
         hand_landmarks_proto.landmark.extend([
             landmark_pb2.NormalizedLandmark(x=landmark.x, y=landmark.y, z=landmark.z) for landmark in hand_landmarks
@@ -106,6 +106,12 @@ def handgesture_using_tasks(cam_url, model_path):
         # The hand landmarker must be created with the image mode.
         mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
         detect_result = recognizer.recognize(mp_img)
+
+        # print the category of
+        gestures = detect_result.gestures
+        handedness = detect_result.handedness
+        for i in range(len(gestures)):
+            print("handedness : {}, gesture type : {}".format(handedness[i][0].category_name, gestures[i][0].category_name))
 
         # Create overlay frame as frame_display
         frame_display = overlay_landmarker(frame, detect_result)
