@@ -1,0 +1,7 @@
+{
+	"cam": "/dev/v4l/by-id/usb-Azurewave_USB2.0_VGA_UVC_WebCam_0x0001-video-index0",
+	"model": {
+        "landmark":"model/hand_landmarker.task",
+        "gesture":"model/gesture_recognizer.task"
+    }
+}
