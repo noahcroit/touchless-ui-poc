@@ -1,162 +1,114 @@
+import argparse
+import sys
+import json
 import cv2
-import mediapipe as mp
-from mediapipe.framework.formats import landmark_pb2
+from gesture_controller import GestureController
+import threading
+import time
+import redis
+import queue
 
 
-HANDPOSE_START = 'Closed_Fist'
-HANDPOSE_CONFIRM = 'Victory'
-HANDPOSE_CANCEL = 'Open_Palm'
-HANDPOSE_UP = 'Thumb_Up'
-HANDPOSE_DOWN = 'Thumb_Down'
-HANDPOSE_RIGHT = 'Pointing_Up'
-HANDPOSE_LEFT = 7
+
+# Queue
+q_pos = queue.Queue()
+q_pos_confirm = queue.Queue()
+istaskrun_cv = False
+istaskrun_redis = False
+
+def task_cv(cam_url, model_path):
+
+    # Hand Gesture Ctrl
+    g = GestureController(5, 5, control_hand='Right')
+    g.config(model_path)
+
+    # cv capture for webcam input
+    # start capture
+    cap = cv2.VideoCapture(cam_url)
+    while cap.isOpened():
+        # get frame
+        ret, frame = cap.read()
+
+        if not ret:
+            print("Ignoring empty camera frame.")
+            continue
+
+        # pre-process frame
+        # To improve performance, optionally mark the image as not writeable to
+        # pass by reference.
+        frame.flags.writeable = False
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        # Perform hand landmarks detection on the provided single image.
+        # The hand landmarker must be created with the image mode.
+        pos, frame_display = g.step(frame)
+        print(pos)
+        print("x pos:{}, y pos:{}".format(g.x, g.y))
+        if pos:
+            q_pos_confirm.put(pos)
+        if g.state == 'ACTIVE':
+            q_pos.put((g.x, g.y))
+
+        # display the result
+        frame_display = cv2.cvtColor(frame_display, cv2.COLOR_BGR2RGB)
+        cv2.imshow('MediaPipe Hands', frame_display)
+        if cv2.waitKey(100) & 0xFF == 27:
+            break
+    cap.release()
+    istaskrun_cv = False
 
 
-class GestureController:
-    def __init__(self, size_x, size_y, display=False, selfie=True, control_hand='Right'):
-        self.display_flag = display
-        self.selfie = selfie
-        self.state = 'IDLE'
-        self.x = 0
-        self.y = 0
-        self.size_x = size_x
-        self.size_y = size_y
-        self.control_hand = control_hand
-        self.detect_result = None
-        self.detect_frame = None
 
-    def config(self, model_path):
-        # Create a gesture recognizer instance with the image mode:
-        BaseOptions = mp.tasks.BaseOptions
-        GestureRecognizer = mp.tasks.vision.GestureRecognizer
-        GestureRecognizerOptions = mp.tasks.vision.GestureRecognizerOptions
-        VisionRunningMode = mp.tasks.vision.RunningMode
-        options = GestureRecognizerOptions(
-            base_options=BaseOptions(model_asset_path=model_path),
-            running_mode=VisionRunningMode.IMAGE,
-            num_hands=3,
-            min_hand_detection_confidence=0.5,
-            min_tracking_confidence=0.5)
-        self.recognizer = GestureRecognizer.create_from_options(options)
 
-    def getHandGesture(self, frame):
-        self.detect_frame = frame
-        mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
-        detect_result = self.recognizer.recognize(mp_img)
-        self.detect_result = detect_result
-        gestures = detect_result.gestures
-        handedness = detect_result.handedness
-        for i in range(len(handedness)):
-            if handedness[i][0].category_name == self.control_hand:
-                return gestures[i][0].category_name
-        return None
+def task_redis():
+    # redis client
+    r = redis.Redis(host='localhost', port=6379)
+    # redis channels for tags
+    ch_pos_x = 'handgesture.pos_x'
+    ch_pos_y = 'handgesture.pos_y'
+    ch_pos_confirm_x = 'handgesture.pos_confirm_x'
+    ch_pos_confirm_y = 'handgesture.pos_confirm_y'
+    ch_state = 'handgesture.state'
 
-    def flip_coordinate(self, frame, x, y):
-        height, width, _ = frame.shape
-        x_flip = width - x
-        y_flip = y
-        return x_flip, y_flip
+    while istaskrun_cv:
+        # tag for cursor position
+        if not q_pos.empty():
+            x, y = q_pos.get()
+            r.set(ch_pos_x, x)
+            r.set(ch_pos_y, y)
 
-    def overlayFrame(self):
-        mp_drawing = mp.solutions.drawing_utils
-        mp_drawing_styles = mp.solutions.drawing_styles
-        mp_hands = mp.solutions.hands
+        if not q_pos_confirm.empty():
+            x, y = q_pos_confirm.get()
+            r.set(ch_pos_confirm_x, x)
+            r.set(ch_pos_confirm_y, y)
 
-        l_gestures = self.detect_result.gestures
-        l_hand_landmarks = self.detect_result.hand_landmarks
-        l_handedness = self.detect_result.handedness
-        l_text_gesture = []
-        l_text_x = []
-        l_text_y = []
-        frame = self.detect_frame
+        time.sleep(0.1)
 
-        # Draw hand landmark
-        for i in range(len(l_gestures)):
-            gesture = l_gestures[i]
-            hand_landmarks = l_hand_landmarks[i]
-            handedness = l_handedness[i]
 
-            #Draw the hand landmarks.
-            hand_landmarks_proto = landmark_pb2.NormalizedLandmarkList()
-            hand_landmarks_proto.landmark.extend([
-                landmark_pb2.NormalizedLandmark(x=landmark.x, y=landmark.y, z=landmark.z) for landmark in hand_landmarks
-            ])
-            mp_drawing.draw_landmarks(
-                    frame,
-                    hand_landmarks_proto,
-                    mp_hands.HAND_CONNECTIONS,
-                    mp_drawing_styles.get_default_hand_landmarks_style(),
-                    mp_drawing_styles.get_default_hand_connections_style())
 
-            # Get the top left corner of the detected hand's bounding box.
-            MARGIN = 20  # pixels
-            height, width, _ = frame.shape
-            x_coordinates = [landmark.x for landmark in hand_landmarks]
-            y_coordinates = [landmark.y for landmark in hand_landmarks]
-            text_x = int(min(x_coordinates) * width)
-            text_y = int(min(y_coordinates) * height) - MARGIN
 
-            if self.selfie:
-                # flip the text coordinate
-                text_x, text_y = self.flip_coordinate(frame, text_x, text_y)
+if __name__ == "__main__":
+    # Initialize parser
+    parser = argparse.ArgumentParser()
+    # Adding optional argument
+    parser.add_argument("-j", "--json", help="JSON file for the configuration", default='config.json')
 
-            l_text_gesture.append(gesture[0].category_name)
-            l_text_x.append(text_x)
-            l_text_y.append(text_y)
+    # Read config file (for camera source, model etc)
+    args = parser.parse_args()
+    f = open(args.json)
+    data = json.load(f)
+    cam = data['cam']
+    model_path = data['model']['gesture']
+    f.close()
 
-        if self.selfie:
-            # Flip the image horizontally for a selfie-view display.
-            frame = cv2.flip(frame, 1)
+    # Run CV task
+    istaskrun_cv = True
+    istaskrun_redis = True
+    t1 = threading.Thread(target=task_cv, args=(cam, model_path))
+    t2 = threading.Thread(target=task_redis)
+    t1.start()
+    t2.start()
+    t1.join()
+    t2.join()
 
-        # Draw text for gesture type
-        FONT_SIZE = 1
-        FONT_THICKNESS = 2
-        TEXT_COLOR = (200, 240, 240)
-        for g, x, y in zip(l_text_gesture, l_text_x, l_text_y):
-            cv2.putText(frame, str(g), (x - 10, y + 50), cv2.FONT_HERSHEY_SIMPLEX, FONT_SIZE, TEXT_COLOR, FONT_THICKNESS)
 
-        return frame
-
-    def step(self, frame):
-        pos = None
-        # get hand pose
-        gesture = self.getHandGesture(frame)
-
-        # if gesture is detected
-        if not gesture:
-            if self.selfie:
-                # Flip the image horizontally for a selfie-view display.
-                frame = cv2.flip(frame, 1)
-            return pos, frame
-        else:
-            frame = self.overlayFrame()
-
-        if self.state == 'IDLE':
-            if gesture == HANDPOSE_START:
-                self.state = 'ACTIVE'
-        elif self.state == 'ACTIVE':
-            if gesture == HANDPOSE_CONFIRM:
-                self.state = 'IDLE'
-                pos = (self.x, self.y)
-            elif gesture == HANDPOSE_CANCEL:
-                self.state = 'IDLE'
-            else:
-                # move x, y depended on the hand pose (up, down, right, left)
-                if gesture == HANDPOSE_UP:
-                    self.y += 1
-                    if self.y >= self.size_y:
-                        self.y = 0
-                elif gesture == HANDPOSE_DOWN:
-                    self.y -= 1
-                    if self.y < 0:
-                        self.y = self.size_y - 1
-                elif gesture == HANDPOSE_RIGHT:
-                    self.x += 1
-                    if self.x >= self.size_x:
-                        self.x = 0
-                elif gesture == HANDPOSE_LEFT:
-                    self.x -= 1
-                    if self.x < 0:
-                        self.x = self.size_x - 1
-
-        return pos, frame
