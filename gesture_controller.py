@@ -1,29 +1,44 @@
 import cv2
+import math
 import mediapipe as mp
 from mediapipe.framework.formats import landmark_pb2
 
 
-HANDPOSE_START = 'Closed_Fist'
-HANDPOSE_CONFIRM = 'Love'
-HANDPOSE_CANCEL = 'Open_Palm'
-HANDPOSE_UP = 'Thumb_Down'
-HANDPOSE_DOWN = 'Thumb_Up'
-HANDPOSE_RIGHT = 'Pointing_Up'
-HANDPOSE_LEFT = 'Victory'
+#HANDPOSE_START = 'Closed_Fist'
+#HANDPOSE_CONFIRM = 'Love'
+#HANDPOSE_CANCEL = 'Open_Palm'
+#HANDPOSE_UP = 'Thumb_Down'
+#HANDPOSE_DOWN = 'Thumb_Up'
+#HANDPOSE_RIGHT = 'Pointing_Up'
+#HANDPOSE_LEFT = 'Victory'
+HANDPOSE_START = 'Open_Palm'
+HANDPOSE_CONFIRM = 'Thumb_Up'
+HANDPOSE_CANCEL = 'Thumb_Down'
+
+
+
+class Hand:
+    def __init__(self, handedness):
+        self.handedness = None
+        self.gesture = None
+        self.landmarks = None
+
 
 
 class GestureController:
-    def __init__(self, size_x, size_y, overlay=True, selfie=True, control_hand='Right'):
+    def __init__(self, slot_size, finger_distance_max=0.3, overlay=True, selfie=True):
         self.overlay_flag = overlay
         self.selfie = selfie
         self.state = 'IDLE'
-        self.x = 0
-        self.y = 0
-        self.size_x = size_x
-        self.size_y = size_y
-        self.control_hand = control_hand
-        self.detect_result = None
-        self.detect_frame = None
+        self.slot_num = 0
+        self.slot_size = slot_size
+        self.d_previous = None
+        self.finger_distance_max = finger_distance_max
+        self.threshold = []
+        stepsize = float(finger_distance_max) / slot_size
+        for i in range(1, self.slot_size):
+            self.threshold.append(i*stepsize)
+        print(self.threshold, len(self.threshold))
 
     def config(self, model_path):
         # Create a gesture recognizer instance with the image mode:
@@ -39,36 +54,87 @@ class GestureController:
             min_tracking_confidence=0.5)
         self.recognizer = GestureRecognizer.create_from_options(options)
 
-    def getHandGesture(self, frame):
-        self.detect_frame = frame
+    def applyHandDetector(self, frame):
         mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
         detect_result = self.recognizer.recognize(mp_img)
-        self.detect_result = detect_result
-        gestures = detect_result.gestures
-        handedness = detect_result.handedness
-        for i in range(len(handedness)):
-            if handedness[i][0].category_name == self.control_hand:
-                return gestures[i][0].category_name
-        return None
+        return detect_result
 
-    def flip_coordinate(self, frame, x, y):
+    def extractHandInfo(self, detect_result):
+        lh = None
+        rh = None
+        l_gestures = detect_result.gestures
+        l_handedness = detect_result.handedness
+        l_hand_landmarks = detect_result.hand_landmarks
+        for i in range(len(l_handedness)):
+            handedness = l_handedness[i][0].category_name
+            gesture = l_gestures[i][0].category_name
+            landmarks = l_hand_landmarks[i]
+            if handedness == 'Left':
+                lh = Hand('Left')
+                lh.gesture = gesture
+                lh.landmarks = landmarks
+            if handedness == 'Right':
+                rh = Hand('Right')
+                rh.gesture = gesture
+                rh.landmarks = landmarks
+        return lh, rh
+
+    def findDistance(self, hand_obj, frame=None):
+        x_thumb = hand_obj.landmarks[4].x
+        x_index = hand_obj.landmarks[8].x
+        y_thumb = hand_obj.landmarks[4].y
+        y_index = hand_obj.landmarks[8].y
+        d = math.dist((x_thumb, y_thumb), (x_index, y_index))
+        if frame is not None and self.overlay_flag:
+            x_thumb, y_thumb = self.denormalizeLandmark(frame, x_thumb, y_thumb)
+            x_index, y_index = self.denormalizeLandmark(frame, x_index, y_index)
+            if self.selfie:
+                x_thumb, y_thumb = self.flipCoordinate(frame, x_thumb, y_thumb)
+                x_index, y_index = self.flipCoordinate(frame, x_index, y_index)
+            cv2.circle(frame, (x_thumb, y_thumb), 20, (0, 0, 255), -1)
+            cv2.circle(frame, (x_index, y_index), 20, (0, 0, 255), -1)
+            cv2.line(frame, (x_thumb, y_thumb), (x_index, y_index), (255, 255, 0), 5)
+            cv2.putText(frame, "%.3f" % d, (x_index - 10, y_index - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (200, 200, 0), 2)
+        return d, frame
+
+    def flipCoordinate(self, frame, x, y):
+        # This function is used in overlayFrame() when selfie-mode is used
         height, width, _ = frame.shape
         x_flip = width - x
         y_flip = y
         return x_flip, y_flip
 
-    def overlayFrame(self):
+    def denormalizeLandmark(self, frame, x, y):
+        height, width, _ = frame.shape
+        x_denom = int(x*width)
+        y_denom = int(y*height)
+        return x_denom, y_denom
+
+    def applyFilter(self, d, alpha=0.5):
+        if self.d_previous is None:
+            self.d_previous = d
+        else:
+            d = (alpha * d) + ((1 - alpha) * self.d_previous)
+            self.d_previous = d
+        return d
+
+    def findSlotNumber(self, d):
+        for i in range(len(self.threshold)-1, -1, -1):
+            if d > self.threshold[i]:
+                return i + 1
+        return 1
+
+    def overlayFrame(self, frame, detect_result):
         mp_drawing = mp.solutions.drawing_utils
         mp_drawing_styles = mp.solutions.drawing_styles
         mp_hands = mp.solutions.hands
 
-        l_gestures = self.detect_result.gestures
-        l_hand_landmarks = self.detect_result.hand_landmarks
-        l_handedness = self.detect_result.handedness
+        l_gestures = detect_result.gestures
+        l_hand_landmarks = detect_result.hand_landmarks
+        l_handedness = detect_result.handedness
         l_text_gesture = []
         l_text_x = []
         l_text_y = []
-        frame = self.detect_frame
 
         # Draw hand landmark
         for i in range(len(l_gestures)):
@@ -98,7 +164,7 @@ class GestureController:
 
             if self.selfie:
                 # flip the text coordinate
-                text_x, text_y = self.flip_coordinate(frame, text_x, text_y)
+                text_x, text_y = self.flipCoordinate(frame, text_x, text_y)
 
             l_text_gesture.append(gesture[0].category_name)
             l_text_x.append(text_x)
@@ -118,49 +184,58 @@ class GestureController:
         return frame
 
     def step(self, frame):
-        pos = None
-        # get hand pose
-        gesture = self.getHandGesture(frame)
+        confirm_slot_num = None
 
-        # if gesture is detected
-        if not gesture:
+        # run detector
+        detect_result = self.applyHandDetector(frame)
+
+        # extract detect_result to left hand, right hand infomation
+        # None -> not detected
+        lh, rh = self.extractHandInfo(detect_result)
+
+        # overlay if hand is detected
+        # else, just pass or flip the frame (if selfie mode is used)
+        if not lh and not rh:
             if self.selfie:
                 # Flip the image horizontally for a selfie-view display.
                 frame = cv2.flip(frame, 1)
-            return pos, frame
+            return confirm_slot_num, frame
         else:
             if self.overlay_flag:
-                frame = self.overlayFrame()
+                frame = self.overlayFrame(frame, detect_result)
             else:
                 if self.selfie:
                     frame = cv2.flip(frame, 1)
 
-        if self.state == 'IDLE':
-            if gesture == HANDPOSE_START:
-                self.state = 'ACTIVE'
-        elif self.state == 'ACTIVE':
-            if gesture == HANDPOSE_CONFIRM:
-                self.state = 'IDLE'
-                pos = (self.x, self.y)
-            elif gesture == HANDPOSE_CANCEL:
-                self.state = 'IDLE'
-            else:
-                # move x, y depended on the hand pose (up, down, right, left)
-                if gesture == HANDPOSE_UP:
-                    self.y += 1
-                    if self.y >= self.size_y:
-                        self.y = 0
-                elif gesture == HANDPOSE_DOWN:
-                    self.y -= 1
-                    if self.y < 0:
-                        self.y = self.size_y - 1
-                elif gesture == HANDPOSE_RIGHT:
-                    self.x += 1
-                    if self.x >= self.size_x:
-                        self.x = 0
-                elif gesture == HANDPOSE_LEFT:
-                    self.x -= 1
-                    if self.x < 0:
-                        self.x = self.size_x - 1
+        if rh:
+            # start event
+            if self.state == 'IDLE':
+                if rh.gesture == HANDPOSE_START:
+                    print("IDLE to SELECT ITEM")
+                    self.state = 'SELECT_ITEM'
 
-        return pos, frame
+            elif self.state == 'SELECT_ITEM':
+                if rh.gesture == HANDPOSE_CONFIRM:
+                    confirm_slot_num = self.slot_num
+                    # reset and goto IDLE
+                    print("Confirmed! To IDLE")
+                    self.state = 'IDLE'
+                    self.slot_num = 0
+
+                elif rh.gesture == HANDPOSE_CANCEL:
+                    print("Cancel, To IDLE")
+                    self.state = 'IDLE'
+                    self.slot_num = 0
+
+                else:
+                    # Linear Control over Thumb-to-Index Distance
+                    d, frame = self.findDistance(rh, frame)
+                    d = self.applyFilter(d, alpha=0.7)
+
+                    # find the current slot number
+                    self.slot_num = self.findSlotNumber(d)
+                    print("distance = {}, slot number = {}".format(d, self.slot_num))
+
+        # return confirmed cursor's position, None -> Not confirm yet
+        # and orignal frame or overlayed frame
+        return confirm_slot_num, frame
