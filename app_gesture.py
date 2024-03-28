@@ -11,15 +11,17 @@ import queue
 
 
 # Queue
-q_pos = queue.Queue()
-q_pos_confirm = queue.Queue()
+q_slot = queue.Queue()
+q_slot_confirm = queue.Queue()
 istaskrun_cv = False
 istaskrun_redis = False
+
+
 
 def task_cv(cam_url, model_path):
 
     # Hand Gesture Ctrl
-    g = GestureController(5, 5, control_hand='Right')
+    g = GestureController(25)
     g.config(model_path)
 
     # cv capture for webcam input
@@ -41,18 +43,18 @@ def task_cv(cam_url, model_path):
 
         # Perform hand landmarks detection on the provided single image.
         # The hand landmarker must be created with the image mode.
-        pos, frame_display = g.step(frame)
-        print(pos)
-        print("x pos:{}, y pos:{}".format(g.x, g.y))
-        if pos:
-            q_pos_confirm.put(pos)
-        if g.state == 'ACTIVE':
-            q_pos.put((g.x, g.y))
+        confirm_slot, frame_display = g.step(frame)
+
+        # Put event and item position to REDIS
+        if confirm_slot:
+            q_slot_confirm.put(confirm_slot)
+        if g.state == 'SELECT_ITEM':
+            q_slot.put(g.slot_num)
 
         # display the result
         frame_display = cv2.cvtColor(frame_display, cv2.COLOR_BGR2RGB)
         cv2.imshow('MediaPipe Hands', frame_display)
-        if cv2.waitKey(100) & 0xFF == 27:
+        if cv2.waitKey(50) & 0xFF == 27:
             break
     cap.release()
     istaskrun_cv = False
@@ -64,23 +66,19 @@ def task_redis():
     # redis client
     r = redis.Redis(host='localhost', port=6379)
     # redis channels for tags
-    ch_pos_x = 'handgesture.pos_x'
-    ch_pos_y = 'handgesture.pos_y'
-    ch_pos_confirm_x = 'handgesture.pos_confirm_x'
-    ch_pos_confirm_y = 'handgesture.pos_confirm_y'
+    ch_slot = 'handgesture.slot_num'
+    ch_slot_confirm = 'handgesture.confirm_slot_num'
     ch_state = 'handgesture.state'
 
     while istaskrun_cv:
         # tag for cursor position
-        if not q_pos.empty():
-            x, y = q_pos.get()
-            r.set(ch_pos_x, x)
-            r.set(ch_pos_y, y)
+        if not q_slot.empty():
+            val = q_slot.get()
+            r.set(ch_slot, val)
 
-        if not q_pos_confirm.empty():
-            x, y = q_pos_confirm.get()
-            r.set(ch_pos_confirm_x, x)
-            r.set(ch_pos_confirm_y, y)
+        if not q_slot_confirm.empty():
+            val = q_slot_confirm.get()
+            r.set(ch_slot_confirm, val)
 
         time.sleep(0.1)
 

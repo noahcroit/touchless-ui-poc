@@ -11,10 +11,8 @@ import redis
 
 
 # redis channels for tags
-ch_pos_x = 'handgesture.pos_x'
-ch_pos_y = 'handgesture.pos_y'
-ch_pos_confirm_x = 'handgesture.pos_confirm_x'
-ch_pos_confirm_y = 'handgesture.pos_confirm_y'
+ch_slot = 'handgesture.slot_num'
+ch_slot_confirm = 'handgesture.confirm_slot_num'
 ch_state = 'handgesture.state'
 
 
@@ -24,9 +22,9 @@ class HandGestureControl_UI():
         self.form = QWidget()
         self.ui = Ui_ItemArray()
         self.ui.setupUi(self.form)
-        self.pix_nonselect = QPixmap("qt/assets/pixel-black.jpg")
-        self.pix_select = QPixmap("qt/assets/pixel-white.jpg")
-        self.pix_confirm = QPixmap("qt/assets/pixel-white.jpg")
+        self.pix_nonselect = QPixmap("qt/assets/pixel-white.jpg")
+        self.pix_cursor = QPixmap("qt/assets/pixel-black.jpg")
+        self.pix_confirm = QPixmap("qt/assets/pixel-green.jpg")
         self.size_x = size_x
         self.size_y = size_y
 
@@ -39,11 +37,11 @@ class HandGestureControl_UI():
         # Create a timer object
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_pos)
-        self.timer.setInterval(250)  # 1 second interval
+        self.timer.setInterval(100)  # 1 second interval
         self.timer.start()
 
     def run(self):
-        self.draw_item_pos(1)
+        self.draw_item_pos(1,1)
         self.ui.lcdNumber_x.display("0")
         self.ui.lcdNumber_y.display("0")
         self.timer.start()
@@ -56,7 +54,7 @@ class HandGestureControl_UI():
             x = int(0)
             y = int(0)
             coor -= 1
-            y = coor / self.size_x
+            y = int(coor / self.size_x)
             x = coor % self.size_x
             return (x, y)
 
@@ -68,23 +66,24 @@ class HandGestureControl_UI():
 
         return None
 
-    def draw_item_pos(self, input_index):
+    def draw_item_pos(self, cursor_num, confirm_num):
         attributes = dir(self.ui)
         for attr in attributes:
             if attr.startswith("label_") and isinstance(getattr(self.ui, attr), QLabel):
                 label = getattr(self.ui, attr)
                 num_label = int(attr.split('label_')[1])
-                if input_index == num_label:
-                    label.setPixmap(self.pix_select)
+                if cursor_num == num_label == cursor_num:
+                    label.setPixmap(self.pix_cursor)
+                elif num_label == confirm_num:
+                    label.setPixmap(self.pix_confirm)
                 else:
                     label.setPixmap(self.pix_nonselect)
 
     def update_pos(self):
-        x = int(self.r.get(ch_pos_x))
-        y = int(self.r.get(ch_pos_y))
-        index = self.coordinate_conversion((x, y))
-        print("index from REDIS : ", index)
-        self.draw_item_pos(index)
+        slot_num = int(self.r.get(ch_slot))
+        confirm_slot_num = int(self.r.get(ch_slot_confirm))
+        (x, y) = self.coordinate_conversion(slot_num)
+        self.draw_item_pos(slot_num, confirm_slot_num)
         self.ui.lcdNumber_x.display(str(x))
         self.ui.lcdNumber_y.display(str(y))
 
