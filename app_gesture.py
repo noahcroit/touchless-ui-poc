@@ -21,7 +21,7 @@ istaskrun_redis = False
 def task_cv(cam_url, model_path):
 
     # Hand Gesture Ctrl
-    g = GestureController(25)
+    g = GestureController(5, 5, logging=False)
     g.config(model_path)
 
     # cv capture for webcam input

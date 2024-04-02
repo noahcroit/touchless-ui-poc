@@ -1,8 +1,8 @@
 import cv2
 import math
+import csv
 import mediapipe as mp
 from mediapipe.framework.formats import landmark_pb2
-
 
 #HANDPOSE_START = 'Closed_Fist'
 #HANDPOSE_CONFIRM = 'Love'
@@ -26,19 +26,19 @@ class Hand:
 
 
 class GestureController:
-    def __init__(self, slot_size, finger_distance_max=0.3, overlay=True, selfie=True):
+    def __init__(self, gridsize_x, gridsize_y, finger_distance_max=0.3, overlay=True, selfie=True, logging=False):
         self.overlay_flag = overlay
         self.selfie = selfie
+        self.logging = logging
         self.state = 'IDLE'
         self.slot_num = 0
-        self.slot_size = slot_size
+        self.x_slot = 0
+        self.y_slot = 0
+        self.slot_size = gridsize_x * gridsize_y
+        self.gridsize_x = gridsize_x
+        self.gridsize_y = gridsize_y
         self.d_previous = None
         self.finger_distance_max = finger_distance_max
-        self.threshold = []
-        stepsize = float(finger_distance_max) / slot_size
-        for i in range(1, self.slot_size):
-            self.threshold.append(i*stepsize)
-        print(self.threshold, len(self.threshold))
 
     def config(self, model_path):
         # Create a gesture recognizer instance with the image mode:
@@ -53,6 +53,13 @@ class GestureController:
             min_hand_detection_confidence=0.5,
             min_tracking_confidence=0.5)
         self.recognizer = GestureRecognizer.create_from_options(options)
+        # calculate threshold values
+        self.threshold_fingerdist = []
+        stepsize = float(self.finger_distance_max) / self.slot_size
+        for i in range(1, self.slot_size):
+            self.threshold_fingerdist.append(i*stepsize)
+        self.threshold_x = None
+        self.threshold_y = None
 
     def applyHandDetector(self, frame):
         mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
@@ -79,7 +86,44 @@ class GestureController:
                 rh.landmarks = landmarks
         return lh, rh
 
-    def findDistance(self, hand_obj, frame=None):
+    def findHandPosition(self, hand_obj, frame):
+        # let middle finger MCP as the center point of hand
+        x_hand = hand_obj.landmarks[9].x
+        y_hand = hand_obj.landmarks[9].y
+        x_hand, y_hand = self.denormalizeLandmark(frame, x_hand, y_hand)
+        # draw point as center of hand (if overlay is True)
+        if frame is not None and self.overlay_flag:
+            if self.selfie:
+                x_hand, y_hand = self.flipCoordinate(frame, x_hand, y_hand)
+            cv2.circle(frame, (x_hand, y_hand), 20, (0, 0, 255), -1)
+        return x_hand, y_hand, frame
+
+    def handPosToSlotXY(self, x_hand, y_hand, frame):
+        x_slot = None
+        y_slot = None
+        # calc threshold at first call
+        if not self.threshold_x:
+            h, w, _ = frame.shape
+            self.threshold_x = []
+            self.threshold_y = []
+            for i in range(1, self.gridsize_x + 1):
+                tmp = i * w/self.gridsize_x
+                self.threshold_x.append(tmp)
+            for i in range(1, self.gridsize_y + 1):
+                tmp = i * h/self.gridsize_y
+                self.threshold_y.append(tmp)
+        # thresholding from less to most value
+        for i in range(0, len(self.threshold_x)):
+            if x_hand < self.threshold_x[i]:
+                x_slot = i
+                break
+        for i in range(0, len(self.threshold_y)):
+            if y_hand < self.threshold_y[i]:
+                y_slot = i
+                break
+        return x_slot, y_slot
+
+    def findFingerDistance(self, hand_obj, frame=None):
         x_thumb = hand_obj.landmarks[4].x
         x_index = hand_obj.landmarks[8].x
         y_thumb = hand_obj.landmarks[4].y
@@ -118,9 +162,9 @@ class GestureController:
             self.d_previous = d
         return d
 
-    def findSlotNumber(self, d):
-        for i in range(len(self.threshold)-1, -1, -1):
-            if d > self.threshold[i]:
+    def fingerDistanceToSlotNumber(self, d):
+        for i in range(len(self.threshold_fingerdist)-1, -1, -1):
+            if d > self.threshold_fingerdist[i]:
                 return i + 1
         return 1
 
@@ -228,13 +272,21 @@ class GestureController:
                     self.slot_num = 0
 
                 else:
-                    # Linear Control over Thumb-to-Index Distance
-                    d, frame = self.findDistance(rh, frame)
+                    # Thumb-to-Index Distance
+                    d, frame = self.findFingerDistance(rh, frame)
                     d = self.applyFilter(d, alpha=0.7)
 
-                    # find the current slot number
-                    self.slot_num = self.findSlotNumber(d)
-                    print("distance = {}, slot number = {}".format(d, self.slot_num))
+                    # Find center of palm position
+                    x_hand, y_hand, frame = self.findHandPosition(rh, frame)
+                    x_slot, y_slot = self.handPosToSlotXY(x_hand, y_hand, frame)
+                    print("slot x,y : {},{}".format(x_slot, y_slot))
+
+                    # log file as .csv file
+                    if self.logging:
+                        with open("log.csv", "a", newline="") as csvfile:
+                            # Create a csv writer object
+                            writer = csv.writer(csvfile)
+                            writer.writerow([str(d)])
 
         # return confirmed cursor's position, None -> Not confirm yet
         # and orignal frame or overlayed frame
