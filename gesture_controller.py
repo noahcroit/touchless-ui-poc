@@ -3,6 +3,12 @@ import math
 import csv
 import mediapipe as mp
 from mediapipe.framework.formats import landmark_pb2
+import numpy as np
+import pandas as pd
+from sklearn import svm
+from sklearn.preprocessing import normalize
+import joblib
+import click_detector.feature_extract as fe
 
 #HANDPOSE_START = 'Closed_Fist'
 #HANDPOSE_CONFIRM = 'Love'
@@ -14,6 +20,7 @@ from mediapipe.framework.formats import landmark_pb2
 HANDPOSE_START = 'Open_Palm'
 HANDPOSE_CONFIRM = 'Thumb_Up'
 HANDPOSE_CANCEL = 'Thumb_Down'
+D_BUFFERSIZE = 24
 
 
 
@@ -39,15 +46,18 @@ class GestureController:
         self.gridsize_y = gridsize_y
         self.d_previous = None
         self.finger_distance_max = finger_distance_max
+        self.d_buffer = np.zeros(D_BUFFERSIZE)
+        self.overlap = np.zeros(D_BUFFERSIZE//2)
+        self.ptr = 0
 
-    def config(self, model_path):
+    def config(self, hand_model_path, click_model_path):
         # Create a gesture recognizer instance with the image mode:
         BaseOptions = mp.tasks.BaseOptions
         GestureRecognizer = mp.tasks.vision.GestureRecognizer
         GestureRecognizerOptions = mp.tasks.vision.GestureRecognizerOptions
         VisionRunningMode = mp.tasks.vision.RunningMode
         options = GestureRecognizerOptions(
-            base_options=BaseOptions(model_asset_path=model_path),
+            base_options=BaseOptions(model_asset_path=hand_model_path),
             running_mode=VisionRunningMode.IMAGE,
             num_hands=3,
             min_hand_detection_confidence=0.5,
@@ -60,6 +70,15 @@ class GestureController:
             self.threshold_fingerdist.append(i*stepsize)
         self.threshold_x = None
         self.threshold_y = None
+        # SVM model for click, double-click detection
+        self.click_model = joblib.load(click_model_path)
+        # setup DSP parameters
+        # create ref signal for correlation feature
+        framesize = 24
+        amplitude = 2
+        frequency = 2 # 2 sinewave within framesize
+        x_value = np.linspace(0, framesize, framesize)
+        self.autocorr_ref = amplitude*np.sin(2*np.pi*frequency*x_value + np.pi/2.5)
 
     def applyHandDetector(self, frame):
         mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
@@ -164,9 +183,20 @@ class GestureController:
 
     def fingerDistanceToSlotNumber(self, d):
         for i in range(len(self.threshold_fingerdist)-1, -1, -1):
-            if d > self.threshold_fingerdist[i]:
+            if d > self.eshold_fingerdist[i]:
                 return i + 1
         return 1
+
+    def click_detector_svm(self, finger_dist, norm=True):
+        # feature extraction
+        finger_dist = np.array(finger_dist)
+        features = fe.getFeatures(finger_dist, self.autocorr_ref)
+        features = features.reshape(1,-1)
+        if norm:
+            features = normalize(features, norm="l2")
+        # classify
+        y_predict = self.click_model.predict(features)
+        return y_predict
 
     def overlayFrame(self, frame, detect_result):
         mp_drawing = mp.solutions.drawing_utils
@@ -274,19 +304,26 @@ class GestureController:
                 else:
                     # Thumb-to-Index Distance
                     d, frame = self.findFingerDistance(rh, frame)
-                    d = self.applyFilter(d, alpha=0.7)
-
-                    # Find center of palm position
-                    x_hand, y_hand, frame = self.findHandPosition(rh, frame)
-                    x_slot, y_slot = self.handPosToSlotXY(x_hand, y_hand, frame)
-                    print("slot x,y : {},{}".format(x_slot, y_slot))
-
-                    # log file as .csv file
+                    d = self.applyFilter(d, alpha=0.6)
+                    # logging the distance value as .csv file
                     if self.logging:
                         with open("log.csv", "a", newline="") as csvfile:
                             # Create a csv writer object
                             writer = csv.writer(csvfile)
-                            writer.writerow([str(d)])
+
+                    self.d_buffer[self.ptr] = d
+                    self.ptr += 1
+                    if self.ptr >= D_BUFFERSIZE:
+                        svm_result = self.click_detector_svm(self.d_buffer)
+                        print("svm result=", svm_result)
+                        _ , self.overlap = np.array_split(self.d_buffer, 2)
+                        self.d_buffer[:D_BUFFERSIZE//2] = self.overlap
+                        self.ptr = D_BUFFERSIZE//2
+
+                    # Find center of palm position
+                    x_hand, y_hand, frame = self.findHandPosition(rh, frame)
+                    #x_slot, y_slot = self.handPosToSlotXY(x_hand, y_hand, frame)
+                    #print("slot x,y : {},{}".format(x_slot, y_slot))
 
         # return confirmed cursor's position, None -> Not confirm yet
         # and orignal frame or overlayed frame

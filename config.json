@@ -1,7 +1,8 @@
 {
-	"cam": "/dev/v4l/by-id/usb-Azurewave_USB2.0_VGA_UVC_WebCam_0x0001-video-index0",
+	"cam": "/dev/v4l/by-id/usb-046d_C922_Pro_Stream_Webcam_5B3499FF-video-index0",
 	"model": {
         "landmark":"model/hand_landmarker.task",
-        "gesture":"model/gesture_recognizer.task"
+        "gesture":"model/gesture_recognizer.task",
+        "click":"click_detector/svm_model.joblib"
     }
 }

@@ -18,11 +18,11 @@ istaskrun_redis = False
 
 
 
-def task_cv(cam_url, model_path):
+def task_cv(cam_url, hand_model_path, click_model_path):
 
     # Hand Gesture Ctrl
     g = GestureController(5, 5, logging=False)
-    g.config(model_path)
+    g.config(hand_model_path, click_model_path)
 
     # cv capture for webcam input
     # start capture
@@ -96,13 +96,14 @@ if __name__ == "__main__":
     f = open(args.json)
     data = json.load(f)
     cam = data['cam']
-    model_path = data['model']['gesture']
+    hand_model_path = data['model']['gesture']
+    click_model_path = data['model']['click']
     f.close()
 
     # Run CV task
     istaskrun_cv = True
     istaskrun_redis = True
-    t1 = threading.Thread(target=task_cv, args=(cam, model_path))
+    t1 = threading.Thread(target=task_cv, args=(cam, hand_model_path, click_model_path))
     t2 = threading.Thread(target=task_redis)
     t1.start()
     t2.start()
