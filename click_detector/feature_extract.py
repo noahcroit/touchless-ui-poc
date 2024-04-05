@@ -22,12 +22,11 @@ def calcAutocorr(signal: np.ndarray, ref: np.ndarray):
     corr_max = corr[len(corr)//2:].max()
     return corr_max
 
-def getFeatures(signal, autocorr_ref):
-    signal_np = np.array(signal)
-    mean, std = calcMeanStd(signal_np)
-    ptp = calcPeakToPeak(signal_np)
-    autocorr = calcAutocorr(signal_np, autocorr_ref)
-    skewness = calcSkewness(signal_np)
-    kurtosis = calcKurtosis(signal_np)
+def getFeatures(signal: np.ndarray, autocorr_ref: np.ndarray):
+    mean, std = calcMeanStd(signal)
+    ptp = calcPeakToPeak(signal)
+    autocorr = calcAutocorr(signal, autocorr_ref)
+    skewness = calcSkewness(signal)
+    kurtosis = calcKurtosis(signal)
     features = np.array([mean, std, ptp, autocorr, skewness, kurtosis])
     return features
