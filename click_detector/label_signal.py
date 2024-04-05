@@ -21,9 +21,11 @@ import argparse
 parser = argparse.ArgumentParser()
 # Adding optional argument
 parser.add_argument("-s", "--signal", help=".csv file of sampled signal", default='log_distance_2apr2024.csv')
+parser.add_argument("-o", "--output", help="output .csv file of training set", default='click.csv')
 # Read config file (for camera source, model etc)
 args = parser.parse_args()
 file_signal = args.signal
+file_output = args.output
 
 
 
@@ -79,14 +81,15 @@ while isrunning:
         label = input("label siganl type as : ")
         features = [mean, std, ptp, autocorr, skewness, kurtosis, label]
         df = pd.DataFrame([features], columns=col_names)
-        df_train = pd.concat([df_train, df])
+        df_train = pd.concat([df_train, df], ignore_index=False)
         print("panda formatted features=")
         print(df_train)
-        print("*"*30)
+        print("*"*50)
 
     # prompt to continue or not
     prompt = input("continue?[y] : ")
     if prompt != 'y':
         isrunning = False
+        df_train.to_csv(file_output, mode='a', index=False, header=False)
 
 
