@@ -142,6 +142,14 @@ class GestureController:
                 break
         return x_slot, y_slot
 
+    def findSlotNumber(self, x, y):
+        if x > self.gridsize_x:
+            x = self.gridsize_x
+        if y > self.gridsize_y:
+            y = self.gridsize_y
+        index = (self.gridsize_x * y) + x + 1
+        return index
+
     def findFingerDistance(self, hand_obj, frame=None):
         x_thumb = hand_obj.landmarks[4].x
         x_index = hand_obj.landmarks[8].x
@@ -180,12 +188,6 @@ class GestureController:
             d = (alpha * d) + ((1 - alpha) * self.d_previous)
             self.d_previous = d
         return d
-
-    def fingerDistanceToSlotNumber(self, d):
-        for i in range(len(self.threshold_fingerdist)-1, -1, -1):
-            if d > self.eshold_fingerdist[i]:
-                return i + 1
-        return 1
 
     def click_detector_svm(self, finger_dist, norm=True):
         # feature extraction
@@ -258,7 +260,8 @@ class GestureController:
         return frame
 
     def step(self, frame):
-        confirm_slot_num = None
+        selected_slot_num = None
+        confirm_flag = False
 
         # run detector
         detect_result = self.applyHandDetector(frame)
@@ -273,7 +276,7 @@ class GestureController:
             if self.selfie:
                 # Flip the image horizontally for a selfie-view display.
                 frame = cv2.flip(frame, 1)
-            return confirm_slot_num, frame
+            return confirm_flag, selected_slot_num, frame
         else:
             if self.overlay_flag:
                 frame = self.overlayFrame(frame, detect_result)
@@ -290,11 +293,12 @@ class GestureController:
 
             elif self.state == 'SELECT_ITEM':
                 if rh.gesture == HANDPOSE_CONFIRM:
-                    confirm_slot_num = self.slot_num
+                    confirm_flag = True
                     # reset and goto IDLE
                     print("Confirmed! To IDLE")
-                    self.state = 'IDLE'
+                    selected_slot_num = self.slot_num
                     self.slot_num = 0
+                    self.state = 'IDLE'
 
                 elif rh.gesture == HANDPOSE_CANCEL:
                     print("Cancel, To IDLE")
@@ -313,18 +317,22 @@ class GestureController:
 
                     self.d_buffer[self.ptr] = d
                     self.ptr += 1
+                    svm_result = None
                     if self.ptr >= D_BUFFERSIZE:
                         svm_result = self.click_detector_svm(self.d_buffer)
-                        print("svm result=", svm_result)
+                        print("svm result for click : ", svm_result)
                         _ , self.overlap = np.array_split(self.d_buffer, 2)
                         self.d_buffer[:D_BUFFERSIZE//2] = self.overlap
                         self.ptr = D_BUFFERSIZE//2
 
                     # Find center of palm position
                     x_hand, y_hand, frame = self.findHandPosition(rh, frame)
-                    #x_slot, y_slot = self.handPosToSlotXY(x_hand, y_hand, frame)
+                    x_slot, y_slot = self.handPosToSlotXY(x_hand, y_hand, frame)
                     #print("slot x,y : {},{}".format(x_slot, y_slot))
+                    self.slot_num = self.findSlotNumber(x_slot, y_slot)
+                    if svm_result == 'double_click':
+                        selected_slot_num = self.slot_num
 
         # return confirmed cursor's position, None -> Not confirm yet
         # and orignal frame or overlayed frame
-        return confirm_slot_num, frame
+        return confirm_flag, selected_slot_num, frame
