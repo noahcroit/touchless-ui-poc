@@ -12,7 +12,7 @@ import redis
 
 # redis channels for tags
 ch_slot = 'handgesture.slot_num'
-ch_slot_confirm = 'handgesture.confirm_slot_num'
+ch_selected_slot = 'handgesture.selected_slot_num'
 ch_state = 'handgesture.state'
 
 
@@ -24,9 +24,11 @@ class HandGestureControl_UI():
         self.ui.setupUi(self.form)
         self.pix_nonselect = QPixmap("qt/assets/pixel-white.jpg")
         self.pix_cursor = QPixmap("qt/assets/pixel-black.jpg")
-        self.pix_confirm = QPixmap("qt/assets/pixel-green.jpg")
+        self.pix_selected = QPixmap("qt/assets/pixel-green.jpg")
         self.size_x = size_x
         self.size_y = size_y
+        self.slot_previous = 0
+        self.selected_slot_previous = 0
 
         self.ui.lcdNumber_x.display("0")
         self.ui.lcdNumber_y.display("0")
@@ -66,7 +68,7 @@ class HandGestureControl_UI():
 
         return None
 
-    def draw_item_pos(self, cursor_num, confirm_num):
+    def draw_item_pos(self, cursor_num, selected_num):
         attributes = dir(self.ui)
         for attr in attributes:
             if attr.startswith("label_") and isinstance(getattr(self.ui, attr), QLabel):
@@ -74,19 +76,19 @@ class HandGestureControl_UI():
                 num_label = int(attr.split('label_')[1])
                 if cursor_num == num_label == cursor_num:
                     label.setPixmap(self.pix_cursor)
-                elif num_label == confirm_num:
-                    label.setPixmap(self.pix_confirm)
+                elif num_label == selected_num:
+                    label.setPixmap(self.pix_selected)
                 else:
                     label.setPixmap(self.pix_nonselect)
 
     def update_pos(self):
         slot_num = int(self.r.get(ch_slot))
-        confirm_slot_num = int(self.r.get(ch_slot_confirm))
-        (x, y) = self.coordinate_conversion(slot_num)
-        self.draw_item_pos(slot_num, confirm_slot_num)
-        self.ui.lcdNumber_x.display(str(x))
-        self.ui.lcdNumber_y.display(str(y))
-
+        selected_slot_num = int(self.r.get(ch_selected_slot))
+        if slot_num != self.slot_previous or selected_slot_num != self.selected_slot_previous:
+            (x, y) = self.coordinate_conversion(slot_num)
+            self.draw_item_pos(slot_num, selected_slot_num)
+            self.ui.lcdNumber_x.display(str(x))
+            self.ui.lcdNumber_y.display(str(y))
 
 
 

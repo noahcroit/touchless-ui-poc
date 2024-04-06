@@ -12,7 +12,8 @@ import queue
 
 # Queue
 q_slot = queue.Queue()
-q_slot_confirm = queue.Queue()
+q_selected_slot = queue.Queue()
+q_confirm = queue.Queue()
 istaskrun_cv = False
 istaskrun_redis = False
 
@@ -43,13 +44,13 @@ def task_cv(cam_url, hand_model_path, click_model_path):
 
         # Perform hand landmarks detection on the provided single image.
         # The hand landmarker must be created with the image mode.
-        confirm_slot, frame_display = g.step(frame)
+        confirm, selected_slot, frame_display = g.step(frame)
 
         # Put event and item position to REDIS
-        if confirm_slot:
-            q_slot_confirm.put(confirm_slot)
         if g.state == 'SELECT_ITEM':
             q_slot.put(g.slot_num)
+            if selected_slot:
+                q_selected_slot.put(selected_slot)
 
         # display the result
         frame_display = cv2.cvtColor(frame_display, cv2.COLOR_BGR2RGB)
@@ -67,18 +68,20 @@ def task_redis():
     r = redis.Redis(host='localhost', port=6379)
     # redis channels for tags
     ch_slot = 'handgesture.slot_num'
-    ch_slot_confirm = 'handgesture.confirm_slot_num'
+    ch_selected_slot = 'handgesture.selected_slot_num'
     ch_state = 'handgesture.state'
 
     while istaskrun_cv:
         # tag for cursor position
         if not q_slot.empty():
             val = q_slot.get()
+            print("cursor=", val)
             r.set(ch_slot, val)
 
-        if not q_slot_confirm.empty():
-            val = q_slot_confirm.get()
-            r.set(ch_slot_confirm, val)
+        if not q_selected_slot.empty():
+            val = q_selected_slot.get()
+            print("selected cursor=", val)
+            r.set(ch_selected_slot, val)
 
         time.sleep(0.1)
 
