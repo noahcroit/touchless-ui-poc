@@ -55,9 +55,12 @@ $ cp -r ../config.json dist/AppGesture
 $ mkdir build_ui
 $ cd build_ui
 $ pyinstaller --name="AppUI" ../app_ui.py
-$ cp -r ../qt/assets dist/AppUI
+$ cp -r ../qt/assets dist/AppUI/qt
 ```
 
+### REDIS
+Two apps, app_ui.py and app_gesture.py talk to each other (sending coordinate) via REDIS.
+Installation of REDIS is needed.
 
 ### More to do
 - Prerequisite (Host Machine setup)
