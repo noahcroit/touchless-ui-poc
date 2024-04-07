@@ -46,11 +46,15 @@ $ python app_ui.py
 
 ### Build binary with PyInstaller
 ```
-mkdir build_gesture
-cd build_gesture
-pyinstaller --name="AppGesture" ../app_gesture.py
-cp -r ../model dist/AppGesture
-cp -r ../config.json dist/AppGesture
+$ mkdir build_gesture
+$ cd build_gesture
+$ pyinstaller --name="AppGesture" ../app_gesture.py
+$ cp -r ../model dist/AppGesture
+$ cp -r ../config.json dist/AppGesture
+
+$ mkdir build_ui
+$ cd build_ui
+$ pyinstaller --name="AppUI" ../app_ui.py
 ```
 
 
