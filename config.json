@@ -3,6 +3,6 @@
     "model": {
         "landmark":"model/hand_landmarker.task",
         "gesture":"model/gesture_recognizer.task",
-        "click":"click_detector/svm_model.joblib"
+        "click":"model/svm_model.joblib"
     }
 }
