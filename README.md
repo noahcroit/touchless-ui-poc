@@ -55,6 +55,7 @@ $ cp -r ../config.json dist/AppGesture
 $ mkdir build_ui
 $ cd build_ui
 $ pyinstaller --name="AppUI" ../app_ui.py
+$ cp -r ../qt/assets dist/AppUI
 ```
 
 
