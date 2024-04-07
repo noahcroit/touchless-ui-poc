@@ -1,6 +1,8 @@
 import cv2
 import math
 import csv
+import matplotlib
+matplotlib.use('svg')
 import mediapipe as mp
 from mediapipe.framework.formats import landmark_pb2
 import numpy as np

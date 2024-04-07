@@ -7,6 +7,7 @@ import threading
 import time
 import redis
 import queue
+import matplotlib
 
 
 
@@ -22,7 +23,7 @@ istaskrun_redis = False
 def task_cv(cam_url, hand_model_path, click_model_path):
 
     # Hand Gesture Ctrl
-    g = GestureController(5, 5, logging=False)
+    g = GestureController(5, 5, logging=False, overlay=True)
     g.config(hand_model_path, click_model_path)
 
     # cv capture for webcam input
