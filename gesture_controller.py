@@ -51,6 +51,7 @@ class GestureController:
         self.d_buffer = np.zeros(D_BUFFERSIZE)
         self.overlap = np.zeros(D_BUFFERSIZE//2)
         self.ptr = 0
+        self.click_detected_cnt=0
 
     def config(self, hand_model_path, click_model_path):
         # Create a gesture recognizer instance with the image mode:
@@ -65,6 +66,9 @@ class GestureController:
             min_hand_detection_confidence=0.5,
             min_tracking_confidence=0.5)
         self.recognizer = GestureRecognizer.create_from_options(options)
+        self.mp_drawing = mp.solutions.drawing_utils
+        self.mp_drawing_styles = mp.solutions.drawing_styles
+        self.mp_hands = mp.solutions.hands
         # calculate threshold values
         self.threshold_fingerdist = []
         stepsize = float(self.finger_distance_max) / self.slot_size
@@ -113,7 +117,7 @@ class GestureController:
         y_hand = hand_obj.landmarks[9].y
         x_hand, y_hand = self.denormalizeLandmark(frame, x_hand, y_hand)
         # draw point as center of hand (if overlay is True)
-        if frame is not None and self.overlay_flag:
+        if frame is not None:
             if self.selfie:
                 x_hand, y_hand = self.flipCoordinate(frame, x_hand, y_hand)
             cv2.circle(frame, (x_hand, y_hand), 20, (0, 0, 255), -1)
@@ -203,10 +207,6 @@ class GestureController:
         return y_predict
 
     def overlayFrame(self, frame, detect_result):
-        mp_drawing = mp.solutions.drawing_utils
-        mp_drawing_styles = mp.solutions.drawing_styles
-        mp_hands = mp.solutions.hands
-
         l_gestures = detect_result.gestures
         l_hand_landmarks = detect_result.hand_landmarks
         l_handedness = detect_result.handedness
@@ -225,12 +225,12 @@ class GestureController:
             hand_landmarks_proto.landmark.extend([
                 landmark_pb2.NormalizedLandmark(x=landmark.x, y=landmark.y, z=landmark.z) for landmark in hand_landmarks
             ])
-            mp_drawing.draw_landmarks(
+            self.mp_drawing.draw_landmarks(
                     frame,
                     hand_landmarks_proto,
-                    mp_hands.HAND_CONNECTIONS,
-                    mp_drawing_styles.get_default_hand_landmarks_style(),
-                    mp_drawing_styles.get_default_hand_connections_style())
+                    self.mp_hands.HAND_CONNECTIONS,
+                    self.mp_drawing_styles.get_default_hand_landmarks_style(),
+                    self.mp_drawing_styles.get_default_hand_connections_style())
 
             # Get the top left corner of the detected hand's bounding box.
             MARGIN = 20  # pixels
@@ -333,7 +333,10 @@ class GestureController:
                     #print("slot x,y : {},{}".format(x_slot, y_slot))
                     self.slot_num = self.findSlotNumber(x_slot, y_slot)
                     if svm_result == 'double_click':
-                        selected_slot_num = self.slot_num
+                        self.click_detected_cnt += 1
+                        if self.click_detected_cnt >= 2:
+                            selected_slot_num = self.slot_num
+                            self.click_detected_cnt = 0
 
         # return confirmed cursor's position, None -> Not confirm yet
         # and orignal frame or overlayed frame

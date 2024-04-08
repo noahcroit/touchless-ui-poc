@@ -23,7 +23,7 @@ istaskrun_redis = False
 def task_cv(cam_url, hand_model_path, click_model_path):
 
     # Hand Gesture Ctrl
-    g = GestureController(5, 5, logging=False, overlay=True)
+    g = GestureController(5, 5, logging=False, overlay=False)
     g.config(hand_model_path, click_model_path)
 
     # cv capture for webcam input
@@ -56,7 +56,7 @@ def task_cv(cam_url, hand_model_path, click_model_path):
         # display the result
         frame_display = cv2.cvtColor(frame_display, cv2.COLOR_BGR2RGB)
         cv2.imshow('MediaPipe Hands', frame_display)
-        if cv2.waitKey(50) & 0xFF == 27:
+        if cv2.waitKey(1) & 0xFF == 27:
             break
     cap.release()
     istaskrun_cv = False
@@ -83,9 +83,6 @@ def task_redis():
             val = q_selected_slot.get()
             print("selected cursor=", val)
             r.set(ch_selected_slot, val)
-
-        time.sleep(0.1)
-
 
 
 

@@ -39,7 +39,7 @@ class HandGestureControl_UI():
         # Create a timer object
         self.timer = QTimer()
         self.timer.timeout.connect(self.update_pos)
-        self.timer.setInterval(100)  # 1 second interval
+        self.timer.setInterval(5)  # 1 second interval
         self.timer.start()
 
     def run(self):
@@ -74,7 +74,7 @@ class HandGestureControl_UI():
             if attr.startswith("label_") and isinstance(getattr(self.ui, attr), QLabel):
                 label = getattr(self.ui, attr)
                 num_label = int(attr.split('label_')[1])
-                if cursor_num == num_label == cursor_num:
+                if num_label == cursor_num and num_label != selected_num:
                     label.setPixmap(self.pix_cursor)
                 elif num_label == selected_num:
                     label.setPixmap(self.pix_selected)
@@ -89,6 +89,8 @@ class HandGestureControl_UI():
             self.draw_item_pos(slot_num, selected_slot_num)
             self.ui.lcdNumber_x.display(str(x))
             self.ui.lcdNumber_y.display(str(y))
+        self.slot_previous = slot_num
+        self.selected_slot_previous = selected_slot_num
 
 
 
