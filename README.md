@@ -4,6 +4,14 @@ The project consists of
 1. Hand gesture controller python app (app_gesture.py)
 2. QT UI python app for a demo (app_ui.py)
 
+### Prerequisite
+1. OpenCV & OpenCV-python
+2. Mediapipe & its python module
+3. ScikitLearn
+4. PyQT
+5. Redis-server & Redis tools, python
+Python packages are in `requirements.txt` file.
+
 ### Hand gesture controller
 OpenCV, Mediapipe, Scikit-Learn are used for image processing and create machine learning model
 to classify the gesture signal.
